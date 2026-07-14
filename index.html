@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TikZ Canvas — draw it, don't code it</title>
+<style>
+  :root{
+    --paper: #fbfcfd;
+    --app-bg: #e9edf1;
+    --ink: #1b2733;
+    --ink-soft: #52616f;
+    --accent: #c07a2b;
+    --accent-soft: #e8c9a3;
+    --panel-dark: #16202b;
+    --panel-dark-text: #d8e4ee;
+    --panel-dark-key: #d8a15a;
+    --border: #c7d0d8;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    font-family: 'IBM Plex Sans', -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--app-bg);
+    color: var(--ink);
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    overflow:hidden;
+  }
+  header{
+    display:flex;
+    align-items:baseline;
+    gap:14px;
+    padding:12px 20px;
+    border-bottom:1px solid var(--border);
+    background: var(--paper);
+    flex-shrink:0;
+  }
+  header h1{ font-size:17px; margin:0; font-weight:700; }
+  header h1 .mono{ font-family:'IBM Plex Mono', monospace; color:var(--accent); }
+  header p{ margin:0; font-size:12.5px; color:var(--ink-soft); }
+
+  .layout{
+    flex:1;
+    display:grid;
+    grid-template-columns: 58px 210px 1fr 380px;
+    min-height:0;
+  }
+
+  /* SHAPE TOOLBAR */
+  .toolbar{
+    background:var(--paper);
+    border-right:1px solid var(--border);
+    display:flex; flex-direction:column; align-items:center;
+    padding:12px 0; gap:6px;
+  }
+  .tool-btn{
+    width:40px; height:40px; border-radius:8px; border:1px solid transparent;
+    background:transparent; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--ink); transition: background .12s, border-color .12s;
+  }
+  .tool-btn:hover{ background:#f0f2f5; }
+  .tool-btn.active{ background:var(--accent-soft); border-color:var(--accent); color:#7a4816; }
+  .tool-btn svg{ width:19px; height:19px; }
+
+  /* STYLE PANEL */
+  .style-panel{
+    background:var(--paper);
+    border-right:1px solid var(--border);
+    padding:14px 14px;
+    overflow-y:auto;
+    display:flex; flex-direction:column; gap:16px;
+  }
+  .style-section label{
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:11px; text-transform:uppercase; letter-spacing:0.05em;
+    color:var(--ink-soft); font-weight:600; margin-bottom:8px;
+  }
+  .style-section label .val{ font-family:'IBM Plex Mono', monospace; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:400;}
+  .swatch-grid{
+    display:grid; grid-template-columns:repeat(6, 1fr); gap:6px; margin-bottom:8px;
+  }
+  .swatch{
+    width:24px; height:24px; border-radius:50%;
+    border:2px solid #fff; box-shadow:0 0 0 1px var(--border); cursor:pointer;
+  }
+  .swatch.active{ box-shadow:0 0 0 2px var(--ink); }
+  .swatch.none{
+    background:
+      linear-gradient(45deg, transparent 45%, #a6402f 45%, #a6402f 55%, transparent 55%),
+      #fff;
+  }
+  input[type=color]{
+    width:100%; height:30px; border:1px solid var(--border); border-radius:6px;
+    padding:2px; background:#fff; cursor:pointer;
+  }
+  input[type=range]{ width:100%; accent-color: var(--accent); }
+  .fill-toggle-row{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;}
+  .fill-toggle-row .switch{
+    position:relative; width:36px; height:20px; background:#c7d0d8; border-radius:10px; cursor:pointer; transition:background .15s;
+  }
+  .fill-toggle-row .switch.on{ background:var(--accent); }
+  .fill-toggle-row .switch::after{
+    content:''; position:absolute; top:2px; left:2px; width:16px; height:16px; background:#fff; border-radius:50%; transition:left .15s;
+  }
+  .fill-toggle-row .switch.on::after{ left:18px; }
+  hr.sep{ border:none; border-top:1px solid var(--border); margin:0; }
+
+  /* COLOR WHEEL */
+  .wheel-block{ margin-bottom:8px; }
+  .wheel-wrap{
+    position:relative; width:120px; height:120px; margin:2px auto 10px;
+  }
+  .wheel-wrap canvas{
+    width:120px; height:120px; border-radius:50%; cursor:crosshair;
+    box-shadow:0 0 0 1px var(--border);
+  }
+  .wheel-indicator{
+    position:absolute; width:10px; height:10px; border-radius:50%;
+    border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,0.5);
+    transform:translate(-50%,-50%); pointer-events:none;
+  }
+  .wheel-value-row{ display:flex; flex-direction:column; gap:4px; }
+
+  /* CANVAS */
+  .canvas-wrap{
+    position:relative; overflow:auto; background:var(--app-bg);
+    display:flex; align-items:flex-start; justify-content:flex-start; padding:24px;
+  }
+  svg#canvas{
+    background-color:var(--paper);
+    border:1px solid var(--border);
+    box-shadow:0 1px 3px rgba(20,30,40,0.08);
+    cursor:crosshair; flex-shrink:0;
+  }
+  .hint-bar{
+    position:absolute; bottom:34px; left:34px; font-size:11.5px; color:var(--ink-soft);
+    background:rgba(251,252,253,0.9); border:1px solid var(--border);
+    padding:5px 10px; border-radius:6px; font-family:'IBM Plex Mono', monospace;
+    pointer-events:none;
+  }
+
+  /* CODE PANEL */
+  .code-panel{ background:var(--panel-dark); color:var(--panel-dark-text); display:flex; flex-direction:column; min-height:0; }
+  .code-head{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #253442; flex-shrink:0; gap:8px; flex-wrap:wrap; }
+  .code-head span{ font-family:'IBM Plex Mono', monospace; font-size:12px; color:#8fa2b3; letter-spacing:0.03em; }
+  .code-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+  .btn{
+    font-family:'IBM Plex Sans', sans-serif; font-size:12px; padding:6px 11px; border-radius:6px;
+    border:1px solid #2d3f50; background:#1e2b38; color:var(--panel-dark-text); cursor:pointer; transition:background .12s;
+  }
+  .btn:hover{ background:#26374690; }
+  .btn:disabled{ opacity:0.35; cursor:not-allowed; }
+  .btn:disabled:hover{ background:#1e2b38; }
+  .btn.primary{ background:var(--accent); border-color:var(--accent); color:#1b1206; font-weight:600; }
+  .btn.primary:hover{ background:#d08a3c; }
+  pre#tikzOut{
+    margin:0; padding:16px; font-family:'IBM Plex Mono', monospace; font-size:12.5px; line-height:1.65;
+    overflow:auto; flex:1; white-space:pre-wrap; word-break:break-word;
+  }
+  .kw{ color:var(--panel-dark-key); }
+  .empty-msg{ padding:2px 0; font-size:12.5px; color:#6d8093; font-family:'IBM Plex Mono', monospace; line-height:1.6; }
+  .text-editor{
+    position:absolute; font-family:'IBM Plex Sans', sans-serif; font-size:14px;
+    border:1px dashed var(--accent); background:#fff; padding:2px 4px; outline:none; min-width:40px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>TikZ<span class="mono">Canvas</span></h1>
+  <p>Draw the diagram. Read off the code. Paste it straight into your .tex file.</p>
+</header>
+
+<div class="layout">
+
+  <!-- SHAPE TOOLBAR -->
+  <div class="toolbar" id="toolbar">
+    <button class="tool-btn active" data-tool="select" title="Select / move (V)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 3l14 7-6 2-2 6-6-15z"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="rect" title="Rectangle (R)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="12" rx="1"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="ellipse" title="Circle / oval — hold Shift for a perfect circle (O)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="8" ry="6"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="triangle" title="Triangle (G)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4l8 16H4z"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="line" title="Line (L)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20L20 4"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="dashed" title="Dashed line (D)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 3"><path d="M4 20L20 4"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="arrow" title="Arrow (A)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20L20 4M20 4h-6M20 4v6"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="text" title="Text (T)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 6h14M12 6v13"/></svg>
+    </button>
+  </div>
+
+  <!-- STYLE PANEL -->
+  <div class="style-panel">
+    <div class="style-section">
+      <label>Stroke colour</label>
+      <div class="swatch-grid" id="strokeSwatches"></div>
+      <input type="color" id="strokeCustom" value="#1b2733">
+      <div class="wheel-block">
+        <div class="wheel-wrap" id="strokeWheelWrap">
+          <canvas id="strokeWheel" width="120" height="120"></canvas>
+          <div class="wheel-indicator" id="strokeWheelDot"></div>
+        </div>
+        <div class="wheel-value-row">
+          <label style="margin-bottom:2px;">Brightness <span class="val" id="strokeWheelVVal">100%</span></label>
+          <input type="range" id="strokeWheelV" min="10" max="100" value="100">
+        </div>
+      </div>
+    </div>
+
+    <hr class="sep">
+
+    <div class="style-section">
+      <div class="fill-toggle-row">
+        <label style="margin:0;">Fill</label>
+        <div class="switch" id="fillToggle"></div>
+      </div>
+      <div class="swatch-grid" id="fillSwatches"></div>
+      <input type="color" id="fillCustom" value="#c07a2b">
+      <div class="wheel-block">
+        <div class="wheel-wrap" id="fillWheelWrap">
+          <canvas id="fillWheel" width="120" height="120"></canvas>
+          <div class="wheel-indicator" id="fillWheelDot"></div>
+        </div>
+        <div class="wheel-value-row">
+          <label style="margin-bottom:2px;">Brightness <span class="val" id="fillWheelVVal">100%</span></label>
+          <input type="range" id="fillWheelV" min="10" max="100" value="100">
+        </div>
+      </div>
+    </div>
+
+    <div class="style-section">
+      <label>Fill opacity <span class="val" id="fillOpacityVal">55%</span></label>
+      <input type="range" id="fillOpacity" min="0" max="100" value="55">
+    </div>
+
+    <hr class="sep">
+
+    <div class="style-section">
+      <label>Stroke opacity <span class="val" id="strokeOpacityVal">100%</span></label>
+      <input type="range" id="strokeOpacity" min="10" max="100" value="100">
+    </div>
+
+    <div class="style-section">
+      <label>Stroke width <span class="val" id="strokeWidthVal">2px</span></label>
+      <input type="range" id="strokeWidth" min="1" max="8" value="2">
+    </div>
+  </div>
+
+  <!-- CANVAS -->
+  <div class="canvas-wrap">
+    <svg id="canvas" width="820" height="640" viewBox="0 0 820 640"></svg>
+    <div class="hint-bar" id="hint">select → click shape → Delete removes · Ctrl+Z undo · Ctrl+Shift+Z redo · Shift = perfect circle/square</div>
+  </div>
+
+  <!-- CODE PANEL -->
+  <div class="code-panel">
+    <div class="code-head">
+      <span>output.tex</span>
+      <div class="code-actions">
+        <button class="btn" id="undoBtn" title="Undo (Ctrl+Z)">↶ Undo</button>
+        <button class="btn" id="redoBtn" title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+        <button class="btn" id="clearBtn">Clear canvas</button>
+        <button class="btn primary" id="copyBtn">Copy code</button>
+      </div>
+    </div>
+    <pre id="tikzOut"></pre>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  const svg = document.getElementById('canvas');
+  const NS = 'http://www.w3.org/2000/svg';
+  const CANVAS_W = 820, CANVAS_H = 640, SCALE = 60;
+  const GRID = 20;
+
+  const PALETTE = [
+    {name:'ink',     hex:'#1b2733'},
+    {name:'crimson', hex:'#a6402f'},
+    {name:'navy',    hex:'#2d4f7c'},
+    {name:'forest',  hex:'#3e6259'},
+    {name:'amber',   hex:'#c07a2b'},
+    {name:'plum',    hex:'#6b4c7a'},
+    {name:'teal',    hex:'#2a7a72'},
+    {name:'rose',    hex:'#b85a7a'},
+    {name:'olive',   hex:'#7a7a2e'},
+    {name:'sky',     hex:'#3f8fc4'},
+    {name:'slate',   hex:'#5f6b7a'},
+    {name:'coral',   hex:'#d1673f'},
+  ];
+
+  let currentTool = 'select';
+  let shapes = [];
+  let history = [];
+  let redoStack = [];
+  let selectedId = null;
+  let idCounter = 1;
+  let shiftHeld = false;
+
+  const style = {
+    stroke: '#1b2733',
+    fillEnabled: false,
+    fill: '#c07a2b',
+    fillOpacity: 0.55,
+    strokeOpacity: 1,
+    strokeWidth: 2
+  };
+
+  // ---------- grid background ----------
+  function buildGrid(){
+    const defs = document.createElementNS(NS,'defs');
+    const pattern = document.createElementNS(NS,'pattern');
+    pattern.setAttribute('id','grid');
+    pattern.setAttribute('width', GRID); pattern.setAttribute('height', GRID);
+    pattern.setAttribute('patternUnits','userSpaceOnUse');
+    const path = document.createElementNS(NS,'path');
+    path.setAttribute('d', `M ${GRID} 0 L 0 0 0 ${GRID}`);
+    path.setAttribute('fill','none'); path.setAttribute('stroke','#d9e1e8'); path.setAttribute('stroke-width','1');
+    pattern.appendChild(path); defs.appendChild(pattern);
+
+    const patternMajor = document.createElementNS(NS,'pattern');
+    patternMajor.setAttribute('id','gridMajor');
+    patternMajor.setAttribute('width', GRID*5); patternMajor.setAttribute('height', GRID*5);
+    patternMajor.setAttribute('patternUnits','userSpaceOnUse');
+    const pathM = document.createElementNS(NS,'path');
+    pathM.setAttribute('d', `M ${GRID*5} 0 L 0 0 0 ${GRID*5}`);
+    pathM.setAttribute('fill','none'); pathM.setAttribute('stroke','#c3ceda'); pathM.setAttribute('stroke-width','1');
+    patternMajor.appendChild(pathM); defs.appendChild(patternMajor);
+    svg.appendChild(defs);
+
+    const bgRect = document.createElementNS(NS,'rect');
+    bgRect.setAttribute('width', CANVAS_W); bgRect.setAttribute('height', CANVAS_H); bgRect.setAttribute('fill','url(#grid)');
+    svg.appendChild(bgRect);
+    const bgRect2 = document.createElementNS(NS,'rect');
+    bgRect2.setAttribute('width', CANVAS_W); bgRect2.setAttribute('height', CANVAS_H); bgRect2.setAttribute('fill','url(#gridMajor)');
+    svg.appendChild(bgRect2);
+  }
+  buildGrid();
+
+  const shapeLayer = document.createElementNS(NS,'g'); svg.appendChild(shapeLayer);
+  const previewLayer = document.createElementNS(NS,'g'); previewLayer.setAttribute('pointer-events','none'); svg.appendChild(previewLayer);
+
+  function ensureMarker(hex){
+    const id = 'arrow-' + hex.replace('#','');
+    if (svg.querySelector('#'+id)) return id;
+    const defs = svg.querySelector('defs');
+    const marker = document.createElementNS(NS,'marker');
+    marker.setAttribute('id', id); marker.setAttribute('markerWidth','8'); marker.setAttribute('markerHeight','8');
+    marker.setAttribute('refX','6'); marker.setAttribute('refY','3'); marker.setAttribute('orient','auto');
+    const p = document.createElementNS(NS,'path'); p.setAttribute('d','M0,0 L6,3 L0,6 Z'); p.setAttribute('fill', hex);
+    marker.appendChild(p); defs.appendChild(marker);
+    return id;
+  }
+
+  // ---------- shape toolbar ----------
+  const toolbar = document.getElementById('toolbar');
+  toolbar.querySelectorAll('.tool-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      toolbar.querySelectorAll('.tool-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      currentTool = btn.dataset.tool;
+      selectedId = null;
+      render();
+    });
+  });
+
+  // ---------- color helpers (shared by swatches, wheel, hex input) ----------
+  function hexToRgb(hex){ hex=hex.replace('#',''); return {r:parseInt(hex.slice(0,2),16), g:parseInt(hex.slice(2,4),16), b:parseInt(hex.slice(4,6),16)}; }
+  function rgbToHex(r,g,b){
+    const h = v => Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0');
+    return '#'+h(r)+h(g)+h(b);
+  }
+  function hsvToRgb(h,s,v){
+    h = ((h%360)+360)%360;
+    const c = v*s, x = c*(1-Math.abs((h/60)%2-1)), m = v-c;
+    let r=0,g=0,b=0;
+    if(h<60){r=c;g=x;b=0;} else if(h<120){r=x;g=c;b=0;} else if(h<180){r=0;g=c;b=x;}
+    else if(h<240){r=0;g=x;b=c;} else if(h<300){r=x;g=0;b=c;} else {r=c;g=0;b=x;}
+    return {r:(r+m)*255, g:(g+m)*255, b:(b+m)*255};
+  }
+  function rgbToHsv(r,g,b){
+    r/=255; g/=255; b/=255;
+    const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min;
+    let h=0;
+    if(d!==0){
+      if(max===r) h=60*(((g-b)/d)%6);
+      else if(max===g) h=60*((b-r)/d+2);
+      else h=60*((r-g)/d+4);
+    }
+    if(h<0) h+=360;
+    const s = max===0?0:d/max;
+    return {h, s, v:max};
+  }
+
+  // ---------- style panel wiring ----------
+  const strokeSwatchWrap = document.getElementById('strokeSwatches');
+  const fillSwatchWrap = document.getElementById('fillSwatches');
+
+  function buildSwatchGrid(wrap, kind){
+    PALETTE.forEach(c=>{
+      const s = document.createElement('div');
+      s.className = 'swatch';
+      s.style.background = c.hex;
+      s.title = c.name;
+      s.dataset.hex = c.hex;
+      s.addEventListener('click', ()=>{
+        if(kind==='stroke'){ setStrokeColor(c.hex, true); }
+        else { setFillColor(c.hex, true); style.fillEnabled = true; syncFillToggle(); }
+        applyStyleToSelection(true);
+        refreshSwatchActive();
+        render();
+      });
+      wrap.appendChild(s);
+    });
+    if(kind==='fill'){
+      const noneSwatch = document.createElement('div');
+      noneSwatch.className = 'swatch none';
+      noneSwatch.title = 'No fill';
+      noneSwatch.addEventListener('click', ()=>{
+        style.fillEnabled = false;
+        syncFillToggle();
+        applyStyleToSelection(true);
+        refreshSwatchActive();
+        render();
+      });
+      wrap.appendChild(noneSwatch);
+    }
+  }
+  buildSwatchGrid(strokeSwatchWrap, 'stroke');
+  buildSwatchGrid(fillSwatchWrap, 'fill');
+
+  function refreshSwatchActive(){
+    strokeSwatchWrap.querySelectorAll('.swatch').forEach(s=> s.classList.toggle('active', s.dataset.hex===style.stroke));
+    fillSwatchWrap.querySelectorAll('.swatch').forEach(s=> s.classList.toggle('active', style.fillEnabled && s.dataset.hex===style.fill));
+  }
+  refreshSwatchActive();
+
+  // ---- centralised setters so the hex input, swatches, and wheel always agree ----
+  function setStrokeColor(hex, moveWheel){
+    style.stroke = hex;
+    document.getElementById('strokeCustom').value = hex;
+    if(moveWheel) positionWheelDot('stroke', hex);
+  }
+  function setFillColor(hex, moveWheel){
+    style.fill = hex;
+    document.getElementById('fillCustom').value = hex;
+    if(moveWheel) positionWheelDot('fill', hex);
+  }
+
+  document.getElementById('strokeCustom').addEventListener('input', (e)=>{
+    setStrokeColor(e.target.value, true); refreshSwatchActive(); applyStyleToSelection(false); render();
+  });
+  document.getElementById('strokeCustom').addEventListener('change', ()=>{ applyStyleToSelection(true); });
+
+  document.getElementById('fillCustom').addEventListener('input', (e)=>{
+    setFillColor(e.target.value, true); style.fillEnabled = true; syncFillToggle(); refreshSwatchActive(); applyStyleToSelection(false); render();
+  });
+  document.getElementById('fillCustom').addEventListener('change', ()=>{ applyStyleToSelection(true); });
+
+  const fillToggleEl = document.getElementById('fillToggle');
+  function syncFillToggle(){ fillToggleEl.classList.toggle('on', style.fillEnabled); }
+  fillToggleEl.addEventListener('click', ()=>{
+    style.fillEnabled = !style.fillEnabled;
+    syncFillToggle(); refreshSwatchActive(); applyStyleToSelection(true); render();
+  });
+
+  // sliders: live-update on 'input' (no history spam), commit one history step on 'change'
+  const fillOpacityInput = document.getElementById('fillOpacity');
+  fillOpacityInput.addEventListener('input', (e)=>{
+    style.fillOpacity = e.target.value/100;
+    document.getElementById('fillOpacityVal').textContent = e.target.value+'%';
+    applyStyleToSelection(false); render();
+  });
+  fillOpacityInput.addEventListener('change', ()=> applyStyleToSelection(true));
+
+  const strokeOpacityInput = document.getElementById('strokeOpacity');
+  strokeOpacityInput.addEventListener('input', (e)=>{
+    style.strokeOpacity = e.target.value/100;
+    document.getElementById('strokeOpacityVal').textContent = e.target.value+'%';
+    applyStyleToSelection(false); render();
+  });
+  strokeOpacityInput.addEventListener('change', ()=> applyStyleToSelection(true));
+
+  const strokeWidthInput = document.getElementById('strokeWidth');
+  strokeWidthInput.addEventListener('input', (e)=>{
+    style.strokeWidth = parseInt(e.target.value,10);
+    document.getElementById('strokeWidthVal').textContent = e.target.value+'px';
+    applyStyleToSelection(false); render();
+  });
+  strokeWidthInput.addEventListener('change', ()=> applyStyleToSelection(true));
+
+  function applyStyleToSelection(commit){
+    if(!selectedId) return;
+    const sh = shapes.find(s=>s.id===selectedId);
+    if(!sh) return;
+    sh.color = style.stroke;
+    sh.fill = style.fillEnabled ? style.fill : null;
+    sh.fillOpacity = style.fillOpacity;
+    sh.strokeOpacity = style.strokeOpacity;
+    sh.strokeWidth = style.strokeWidth;
+    if(commit) pushHistory();
+  }
+
+  function loadStyleFromShape(sh){
+    setStrokeColor(sh.color, true);
+    style.fillEnabled = !!sh.fill;
+    style.fill = sh.fill || style.fill;
+    setFillColor(style.fill, true);
+    syncFillToggle();
+    style.fillOpacity = sh.fillOpacity ?? 0.55;
+    fillOpacityInput.value = Math.round(style.fillOpacity*100);
+    document.getElementById('fillOpacityVal').textContent = Math.round(style.fillOpacity*100)+'%';
+    style.strokeOpacity = sh.strokeOpacity ?? 1;
+    strokeOpacityInput.value = Math.round(style.strokeOpacity*100);
+    document.getElementById('strokeOpacityVal').textContent = Math.round(style.strokeOpacity*100)+'%';
+    style.strokeWidth = sh.strokeWidth ?? 2;
+    strokeWidthInput.value = style.strokeWidth;
+    document.getElementById('strokeWidthVal').textContent = style.strokeWidth+'px';
+    refreshSwatchActive();
+  }
+
+  // ---------- color wheels ----------
+  function buildWheel(canvasId){
+    const canvas = document.getElementById(canvasId);
+    const ctx = canvas.getContext('2d');
+    const size = canvas.width, cx = size/2, cy = size/2, radius = size/2;
+    const img = ctx.createImageData(size, size);
+    for(let y=0; y<size; y++){
+      for(let x=0; x<size; x++){
+        const dx = x-cx, dy = y-cy;
+        const dist = Math.sqrt(dx*dx+dy*dy);
+        const idx = (y*size+x)*4;
+        if(dist <= radius){
+          const angle = Math.atan2(dy,dx) * 180/Math.PI;
+          const hue = (angle+360)%360;
+          const sat = Math.min(1, dist/radius);
+          const {r,g,b} = hsvToRgb(hue, sat, 1);
+          img.data[idx]=r; img.data[idx+1]=g; img.data[idx+2]=b; img.data[idx+3]=255;
+        } else {
+          img.data[idx+3]=0;
+        }
+      }
+    }
+    ctx.putImageData(img,0,0);
+  }
+  buildWheel('strokeWheel');
+  buildWheel('fillWheel');
+
+  function positionWheelDot(kind, hex){
+    const canvas = document.getElementById(kind+'Wheel');
+    const dot = document.getElementById(kind+'WheelDot');
+    const size = canvas.width, cx = size/2, cy = size/2, radius = size/2;
+    const {r,g,b} = hexToRgb(hex);
+    const {h,s} = rgbToHsv(r,g,b);
+    const dist = Math.min(1,s) * radius;
+    const rad = h * Math.PI/180;
+    const x = cx + Math.cos(rad)*dist;
+    const y = cy + Math.sin(rad)*dist;
+    dot.style.left = x+'px';
+    dot.style.top = y+'px';
+    dot.style.background = hex;
+  }
+
+  function wireWheel(kind){
+    const canvas = document.getElementById(kind+'Wheel');
+    const vSlider = document.getElementById(kind+'WheelV');
+    const vLabel = document.getElementById(kind+'WheelVVal');
+    const size = canvas.width, cx=size/2, cy=size/2, radius=size/2;
+    let dragging = false;
+
+    function pickAt(clientX, clientY, commit){
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = size/rect.width, scaleY = size/rect.height;
+      let x = (clientX-rect.left)*scaleX - cx;
+      let y = (clientY-rect.top)*scaleY - cy;
+      let dist = Math.sqrt(x*x+y*y);
+      if(dist > radius){ const k = radius/dist; x*=k; y*=k; dist = radius; }
+      const angle = Math.atan2(y,x) * 180/Math.PI;
+      const hue = (angle+360)%360;
+      const sat = dist/radius;
+      const v = vSlider.value/100;
+      const {r,g,b} = hsvToRgb(hue, sat, v);
+      const hex = rgbToHex(r,g,b);
+      if(kind==='stroke'){ setStrokeColor(hex,false); } else { setFillColor(hex,false); style.fillEnabled = true; syncFillToggle(); }
+      const dot = document.getElementById(kind+'WheelDot');
+      dot.style.left = (cx+x)+'px'; dot.style.top=(cy+y)+'px'; dot.style.background = hex;
+      refreshSwatchActive();
+      applyStyleToSelection(commit);
+      render();
+    }
+
+    canvas.addEventListener('mousedown', (e)=>{ dragging = true; pickAt(e.clientX, e.clientY, false); });
+    window.addEventListener('mousemove', (e)=>{ if(dragging) pickAt(e.clientX, e.clientY, false); });
+    window.addEventListener('mouseup', (e)=>{ if(dragging){ dragging=false; pickAt(e.clientX, e.clientY, true); } });
+
+    vSlider.addEventListener('input', ()=>{
+      vLabel.textContent = vSlider.value+'%';
+      const hex = kind==='stroke' ? style.stroke : style.fill;
+      const {r,g,b} = hexToRgb(hex);
+      const {h,s} = rgbToHsv(r,g,b);
+      const nv = hsvToRgb(h,s,vSlider.value/100);
+      const newHex = rgbToHex(nv.r,nv.g,nv.b);
+      if(kind==='stroke'){ setStrokeColor(newHex,false); } else { setFillColor(newHex,false); }
+      document.getElementById(kind+'WheelDot').style.background = newHex;
+      refreshSwatchActive();
+      applyStyleToSelection(false); render();
+    });
+    vSlider.addEventListener('change', ()=> applyStyleToSelection(true));
+  }
+  wireWheel('stroke');
+  wireWheel('fill');
+  positionWheelDot('stroke', style.stroke);
+  positionWheelDot('fill', style.fill);
+
+  // ---------- drawing interaction ----------
+  let drawing = false;
+  let startPt = null;
+  let tempShape = null;
+
+  window.addEventListener('keydown', e=>{ if(e.key==='Shift') shiftHeld = true; });
+  window.addEventListener('keyup', e=>{ if(e.key==='Shift') shiftHeld = false; });
+
+  function svgPoint(evt){
+    const rect = svg.getBoundingClientRect();
+    let x = evt.clientX - rect.left, y = evt.clientY - rect.top;
+    x = Math.max(0, Math.min(CANVAS_W, x)); y = Math.max(0, Math.min(CANVAS_H, y));
+    return {x: snap(x), y: snap(y)};
+  }
+  function snap(v){ return Math.round(v / (GRID/2)) * (GRID/2); }
+
+  function newShapeBase(type, pt){
+    return {
+      id:'tmp', type, x:pt.x, y:pt.y, x1:pt.x, y1:pt.y, x2:pt.x, y2:pt.y, w:0, h:0,
+      color: style.stroke,
+      fill: style.fillEnabled ? style.fill : null,
+      fillOpacity: style.fillOpacity,
+      strokeOpacity: style.strokeOpacity,
+      strokeWidth: style.strokeWidth
+    };
+  }
+
+  svg.addEventListener('mousedown', (e)=>{
+    const pt = svgPoint(e);
+    if(currentTool === 'select'){
+      const target = e.target.closest('[data-shape-id]');
+      selectedId = target ? target.dataset.shapeId : null;
+      if(selectedId){ const sh = shapes.find(s=>s.id===selectedId); if(sh) loadStyleFromShape(sh); }
+      render();
+      return;
+    }
+    if(currentTool === 'text'){ openTextEditor(pt); return; }
+
+    drawing = true; startPt = pt;
+    tempShape = newShapeBase(currentTool, pt);
+  });
+
+  svg.addEventListener('mousemove', (e)=>{
+    if(!drawing) return;
+    const pt = svgPoint(e);
+    if(currentTool==='rect' || currentTool==='ellipse' || currentTool==='triangle'){
+      let w = pt.x - startPt.x, h = pt.y - startPt.y;
+      if(shiftHeld){ const m = Math.max(Math.abs(w),Math.abs(h)); w = Math.sign(w||1)*m; h = Math.sign(h||1)*m; }
+      tempShape.x = Math.min(startPt.x, startPt.x+w);
+      tempShape.y = Math.min(startPt.y, startPt.y+h);
+      tempShape.w = Math.abs(w); tempShape.h = Math.abs(h);
+    } else {
+      tempShape.x2 = pt.x; tempShape.y2 = pt.y;
+      if(shiftHeld){
+        const dx = tempShape.x2-tempShape.x1, dy = tempShape.y2-tempShape.y1;
+        const angle = Math.round(Math.atan2(dy,dx)/(Math.PI/4))*(Math.PI/4);
+        const dist = Math.hypot(dx,dy);
+        tempShape.x2 = tempShape.x1 + Math.cos(angle)*dist;
+        tempShape.y2 = tempShape.y1 + Math.sin(angle)*dist;
+      }
+    }
+    drawPreview(tempShape);
+  });
+
+  window.addEventListener('mouseup', ()=>{
+    if(!drawing) return;
+    drawing = false;
+    previewLayer.innerHTML = '';
+    const minSize = 4;
+    if(tempShape.type==='rect' || tempShape.type==='ellipse' || tempShape.type==='triangle'){
+      if(tempShape.w < minSize || tempShape.h < minSize){ tempShape=null; return; }
+    } else {
+      if(Math.hypot(tempShape.x2-tempShape.x1, tempShape.y2-tempShape.y1) < minSize){ tempShape=null; return; }
+    }
+    tempShape.id = 'shape-' + (idCounter++);
+    shapes.push(tempShape);
+    selectedId = tempShape.id;
+    tempShape = null;
+    pushHistory();
+    render();
+  });
+
+  function drawPreview(s){ previewLayer.innerHTML=''; previewLayer.appendChild(shapeToSvg(s,false)); }
+
+  // ---------- text editing ----------
+  function openTextEditor(pt){
+    const wrap = svg.parentElement;
+    const input = document.createElement('input');
+    input.className = 'text-editor';
+    input.style.left = (svg.offsetLeft + pt.x) + 'px';
+    input.style.top = (svg.offsetTop + pt.y - 10) + 'px';
+    input.style.color = style.stroke;
+    wrap.appendChild(input); input.focus();
+    function commit(){
+      const val = input.value.trim();
+      wrap.removeChild(input);
+      if(val){
+        shapes.push({ id:'shape-'+(idCounter++), type:'text', color: style.stroke, x: pt.x, y: pt.y, text: val, strokeOpacity: style.strokeOpacity });
+        pushHistory(); render();
+      }
+    }
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', (e)=>{
+      if(e.key==='Enter'){ e.preventDefault(); input.blur(); }
+      if(e.key==='Escape'){ input.value=''; input.blur(); }
+    });
+  }
+
+  // ---------- shape -> svg ----------
+  function fillAttrs(el, s){
+    if(s.fill){ el.setAttribute('fill', s.fill); el.setAttribute('fill-opacity', s.fillOpacity ?? 0.55); }
+    else { el.setAttribute('fill','none'); }
+    el.setAttribute('stroke', s.color);
+    el.setAttribute('stroke-opacity', s.strokeOpacity ?? 1);
+    el.setAttribute('stroke-width', s.strokeWidth ?? 2);
+  }
+
+  function trianglePoints(s){
+    const apex = `${s.x + s.w/2},${s.y}`;
+    const bl = `${s.x},${s.y+s.h}`;
+    const br = `${s.x+s.w},${s.y+s.h}`;
+    return `${apex} ${br} ${bl}`;
+  }
+
+  function shapeToSvg(s, interactive){
+    let el;
+    if(s.type === 'rect'){
+      el = document.createElementNS(NS,'rect');
+      el.setAttribute('x', s.x); el.setAttribute('y', s.y);
+      el.setAttribute('width', s.w); el.setAttribute('height', s.h);
+      fillAttrs(el, s);
+    } else if(s.type === 'ellipse'){
+      el = document.createElementNS(NS,'ellipse');
+      el.setAttribute('cx', s.x + s.w/2); el.setAttribute('cy', s.y + s.h/2);
+      el.setAttribute('rx', s.w/2); el.setAttribute('ry', s.h/2);
+      fillAttrs(el, s);
+    } else if(s.type === 'triangle'){
+      el = document.createElementNS(NS,'polygon');
+      el.setAttribute('points', trianglePoints(s));
+      fillAttrs(el, s);
+    } else if(s.type === 'line' || s.type === 'dashed' || s.type === 'arrow'){
+      el = document.createElementNS(NS,'line');
+      el.setAttribute('x1', s.x1); el.setAttribute('y1', s.y1);
+      el.setAttribute('x2', s.x2); el.setAttribute('y2', s.y2);
+      el.setAttribute('stroke', s.color);
+      el.setAttribute('stroke-opacity', s.strokeOpacity ?? 1);
+      el.setAttribute('stroke-width', s.strokeWidth ?? 2);
+      if(s.type === 'dashed') el.setAttribute('stroke-dasharray','6 5');
+      if(s.type === 'arrow'){ el.setAttribute('marker-end', `url(#${ensureMarker(s.color)})`); }
+    } else if(s.type === 'text'){
+      el = document.createElementNS(NS,'text');
+      el.setAttribute('x', s.x); el.setAttribute('y', s.y);
+      el.setAttribute('fill', s.color);
+      el.setAttribute('fill-opacity', s.strokeOpacity ?? 1);
+      el.setAttribute('font-size','15');
+      el.setAttribute('font-family',"'IBM Plex Sans', sans-serif");
+      el.textContent = s.text;
+    }
+    if(interactive && el){ el.dataset.shapeId = s.id; el.style.cursor = 'pointer'; }
+    return el;
+  }
+
+  function getBBox(s){
+    if(s.type==='rect' || s.type==='ellipse' || s.type==='triangle') return {x:s.x,y:s.y,w:s.w,h:s.h};
+    if(s.type==='text') return {x:s.x-2,y:s.y-16,w: s.text.length*8, h:20};
+    return { x: Math.min(s.x1,s.x2), y: Math.min(s.y1,s.y2), w: Math.abs(s.x2-s.x1), h: Math.abs(s.y2-s.y1) };
+  }
+
+  function render(){
+    shapeLayer.innerHTML = '';
+    shapes.forEach(s=>{
+      const el = shapeToSvg(s, true);
+      if(s.id === selectedId){
+        const bbox = getBBox(s);
+        const halo = document.createElementNS(NS,'rect');
+        halo.setAttribute('x', bbox.x-5); halo.setAttribute('y', bbox.y-5);
+        halo.setAttribute('width', bbox.w+10); halo.setAttribute('height', bbox.h+10);
+        halo.setAttribute('fill','none'); halo.setAttribute('stroke','#c07a2b');
+        halo.setAttribute('stroke-width','1.4'); halo.setAttribute('stroke-dasharray','4 3'); halo.setAttribute('rx','4');
+        shapeLayer.appendChild(halo);
+      }
+      shapeLayer.appendChild(el);
+    });
+    updateCode();
+  }
+
+  // ---------- history: undo / redo ----------
+  const undoBtn = document.getElementById('undoBtn');
+  const redoBtn = document.getElementById('redoBtn');
+
+  function updateHistoryButtons(){
+    undoBtn.disabled = history.length <= 1;
+    redoBtn.disabled = redoStack.length === 0;
+  }
+
+  function pushHistory(){
+    history.push(JSON.parse(JSON.stringify(shapes)));
+    if(history.length>60) history.shift();
+    redoStack = []; // a fresh action invalidates any redo path
+    updateHistoryButtons();
+  }
+
+  function doUndo(){
+    if(history.length <= 1) return;
+    redoStack.push(history.pop());
+    const prev = history[history.length-1];
+    shapes = prev ? JSON.parse(JSON.stringify(prev)) : [];
+    selectedId = null;
+    updateHistoryButtons();
+    render();
+  }
+
+  function doRedo(){
+    if(redoStack.length === 0) return;
+    const next = redoStack.pop();
+    history.push(next);
+    shapes = JSON.parse(JSON.stringify(next));
+    selectedId = null;
+    updateHistoryButtons();
+    render();
+  }
+
+  undoBtn.addEventListener('click', doUndo);
+  redoBtn.addEventListener('click', doRedo);
+
+  // ---------- delete / keyboard shortcuts ----------
+  window.addEventListener('keydown', (e)=>{
+    const tag = document.activeElement.tagName;
+    if(tag === 'INPUT') return;
+    if((e.key==='Delete'||e.key==='Backspace') && selectedId){
+      shapes = shapes.filter(s=>s.id!==selectedId); selectedId=null; pushHistory(); render(); e.preventDefault();
+      return;
+    }
+    if(e.ctrlKey && !e.shiftKey && e.key.toLowerCase()==='z'){ doUndo(); e.preventDefault(); return; }
+    if(e.ctrlKey && (e.shiftKey && e.key.toLowerCase()==='z' || e.key.toLowerCase()==='y')){ doRedo(); e.preventDefault(); return; }
+
+    const map = {v:'select', r:'rect', o:'ellipse', g:'triangle', l:'line', d:'dashed', a:'arrow', t:'text'};
+    if(map[e.key]){
+      currentTool = map[e.key];
+      toolbar.querySelectorAll('.tool-btn').forEach(b=>b.classList.toggle('active', b.dataset.tool===currentTool));
+    }
+  });
+
+  document.getElementById('clearBtn').addEventListener('click', ()=>{
+    if(shapes.length===0) return;
+    if(confirm('Clear the whole canvas?')){ shapes=[]; selectedId=null; pushHistory(); render(); }
+  });
+
+  // ---------- TikZ code generation ----------
+  function escapeLatex(str){ return str.replace(/([%&#_{}])/g,'\\$1').replace(/\\/g,'\\textbackslash{}'); }
+
+  function toTikz(){
+    if(shapes.length===0) return null;
+    const usedColors = new Map();
+    function colorName(hex){
+      if(!usedColors.has(hex)){
+        const known = PALETTE.find(p=>p.hex===hex);
+        usedColors.set(hex, known ? known.name : 'c'+usedColors.size);
+      }
+      return usedColors.get(hex);
+    }
+    const body = [];
+    shapes.forEach(s=>{
+      const strokeName = colorName(s.color);
+      const lw = ((s.strokeWidth ?? 2)/2).toFixed(1);
+      const so = (s.strokeOpacity ?? 1).toFixed(2);
+      if(s.type==='rect' || s.type==='ellipse' || s.type==='triangle'){
+        const opts = [`draw=${strokeName}`, `line width=${lw}pt`, `draw opacity=${so}`];
+        if(s.fill){
+          const fillName = colorName(s.fill);
+          opts.push(`fill=${fillName}`, `fill opacity=${(s.fillOpacity ?? 0.55).toFixed(2)}`);
+        }
+        if(s.type==='rect'){
+          const x1=(s.x/SCALE).toFixed(2), y1=((CANVAS_H-s.y)/SCALE).toFixed(2);
+          const x2=((s.x+s.w)/SCALE).toFixed(2), y2=((CANVAS_H-(s.y+s.h))/SCALE).toFixed(2);
+          body.push(`\\filldraw[${opts.join(', ')}] (${x1},${y1}) rectangle (${x2},${y2});`);
+        } else if(s.type==='ellipse'){
+          const cx=((s.x+s.w/2)/SCALE).toFixed(2), cy=((CANVAS_H-(s.y+s.h/2))/SCALE).toFixed(2);
+          const rx=(s.w/2/SCALE).toFixed(2), ry=(s.h/2/SCALE).toFixed(2);
+          body.push(`\\filldraw[${opts.join(', ')}] (${cx},${cy}) ellipse (${rx} and ${ry});`);
+        } else if(s.type==='triangle'){
+          const apex_x=((s.x+s.w/2)/SCALE).toFixed(2), apex_y=((CANVAS_H-s.y)/SCALE).toFixed(2);
+          const bl_x=(s.x/SCALE).toFixed(2), bl_y=((CANVAS_H-(s.y+s.h))/SCALE).toFixed(2);
+          const br_x=((s.x+s.w)/SCALE).toFixed(2), br_y=((CANVAS_H-(s.y+s.h))/SCALE).toFixed(2);
+          body.push(`\\filldraw[${opts.join(', ')}] (${apex_x},${apex_y}) -- (${br_x},${br_y}) -- (${bl_x},${bl_y}) -- cycle;`);
+        }
+      } else if(s.type==='line' || s.type==='dashed' || s.type==='arrow'){
+        const x1=(s.x1/SCALE).toFixed(2), y1=((CANVAS_H-s.y1)/SCALE).toFixed(2);
+        const x2=(s.x2/SCALE).toFixed(2), y2=((CANVAS_H-s.y2)/SCALE).toFixed(2);
+        const opts=[strokeName, `line width=${lw}pt`, `draw opacity=${so}`];
+        if(s.type==='dashed') opts.push('dashed');
+        if(s.type==='arrow') opts.push('->');
+        body.push(`\\draw[${opts.join(', ')}] (${x1},${y1}) -- (${x2},${y2});`);
+      } else if(s.type==='text'){
+        const x=(s.x/SCALE).toFixed(2), y=((CANVAS_H-s.y)/SCALE).toFixed(2);
+        body.push(`\\node[${strokeName}, anchor=west] at (${x},${y}) {${escapeLatex(s.text)}};`);
+      }
+    });
+    const preamble = [...usedColors.entries()].map(([hex,name])=>{
+      const {r,g,b} = hexToRgb(hex);
+      return `\\definecolor{${name}}{RGB}{${r},${g},${b}}`;
+    });
+    let out = '';
+    if(preamble.length) out += preamble.join('\n') + '\n\n';
+    out += '\\begin{tikzpicture}\n' + body.map(l=>'  '+l).join('\n') + '\n\\end{tikzpicture}';
+    return out;
+  }
+
+  function highlight(code){ return code.replace(/(\\[a-zA-Z]+)/g, '<span class="kw">$1</span>'); }
+
+  function updateCode(){
+    const out = document.getElementById('tikzOut');
+    const code = toTikz();
+    if(!code){
+      out.innerHTML = '<div class="empty-msg">% nothing drawn yet —<br>% pick a tool on the left, set a colour/fill,<br>% and start drawing. this panel updates live.</div>';
+      return;
+    }
+    out.innerHTML = highlight(code);
+  }
+
+  document.getElementById('copyBtn').addEventListener('click', ()=>{
+    const code = toTikz();
+    if(!code) return;
+    navigator.clipboard.writeText(code).then(()=>{
+      const btn = document.getElementById('copyBtn');
+      const old = btn.textContent; btn.textContent = 'Copied ✓';
+      setTimeout(()=>{ btn.textContent = old; }, 1200);
+    });
+  });
+
+  pushHistory();
+  updateHistoryButtons();
+  render();
+})();
+</script>
+</body>
+</html>
