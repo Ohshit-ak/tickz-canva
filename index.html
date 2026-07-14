@@ -16,6 +16,15 @@
     --panel-dark-key: #d8a15a;
     --border: #c7d0d8;
   }
+  body.dark{
+    --paper: #141b23;
+    --app-bg: #0a0e13;
+    --ink: #e4ecf3;
+    --ink-soft: #90a3b3;
+    --accent: #d99a4e;
+    --accent-soft: #4a3620;
+    --border: #2b3947;
+  }
   *{box-sizing:border-box;}
   html,body{height:100%;margin:0;}
   body{
@@ -26,6 +35,7 @@
     flex-direction:column;
     height:100vh;
     overflow:hidden;
+    transition: background .18s, color .18s;
   }
   header{
     display:flex;
@@ -35,7 +45,21 @@
     border-bottom:1px solid var(--border);
     background: var(--paper);
     flex-shrink:0;
+    transition: background .18s, border-color .18s;
   }
+  /* THEME TOGGLE BUTTON */
+  .theme-toggle{
+    margin-left:auto; width:34px; height:34px; border-radius:8px;
+    border:1px solid var(--border); background:var(--paper); color:var(--ink-soft);
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    flex-shrink:0; align-self:center; transition: background .15s, border-color .15s, color .15s;
+  }
+  .theme-toggle:hover{ background:var(--app-bg); color:var(--ink); }
+  .theme-toggle svg{ width:17px; height:17px; }
+  .theme-toggle .icon-moon{ display:none; }
+  body.dark .theme-toggle .icon-sun{ display:none; }
+  body.dark .theme-toggle .icon-moon{ display:block; }
+
   header h1{ font-size:17px; margin:0; font-weight:700; }
   header h1 .mono{ font-family:'IBM Plex Mono', monospace; color:var(--accent); }
   header p{ margin:0; font-size:12.5px; color:var(--ink-soft); }
@@ -165,6 +189,18 @@
     position:absolute; font-family:'IBM Plex Sans', sans-serif; font-size:14px;
     border:1px dashed var(--accent); background:#fff; padding:2px 4px; outline:none; min-width:40px;
   }
+
+  /* dark-mode tweaks for the few spots with hardcoded colors */
+  body.dark .tool-btn.active{ color:#ffd9a0; }
+  body.dark .hint-bar{ background:rgba(20,27,35,0.9); }
+  body.dark .text-editor{ background:#1c2731; color:var(--ink); }
+  body.dark input[type=color]{ background:#1c2731; border-color:var(--border); }
+  body.dark .swatch.none{
+    background:
+      linear-gradient(45deg, transparent 45%, #d1673f 45%, #d1673f 55%, transparent 55%),
+      #1c2731;
+  }
+  body.dark .swatch{ border-color:#1c2731; }
 </style>
 </head>
 <body>
@@ -172,6 +208,14 @@
 <header>
   <h1>TikZ<span class="mono">Canvas</span></h1>
   <p>Draw the diagram. Read off the code. Paste it straight into your .tex file.</p>
+  
+  <!-- Theme Toggle Button -->
+  <button class="theme-toggle" id="themeToggle" title="Toggle Dark Mode">
+    <!-- Sun Icon -->
+    <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    <!-- Moon Icon -->
+    <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
 </header>
 
 <div class="layout">
@@ -313,6 +357,10 @@
   let idCounter = 1;
   let shiftHeld = false;
 
+  // DRAG STATE
+  let isDragging = false;
+  let dragOffset = {x:0, y:0};
+
   const style = {
     stroke: '#1b2733',
     fillEnabled: false,
@@ -321,6 +369,12 @@
     strokeOpacity: 1,
     strokeWidth: 2
   };
+
+  // ---------- DARK MODE TOGGLE ----------
+  const themeBtn = document.getElementById('themeToggle');
+  themeBtn.addEventListener('click', () => {
+    document.body.classList.toggle('dark');
+  });
 
   // ---------- grid background ----------
   function buildGrid(){
@@ -657,22 +711,74 @@
 
   svg.addEventListener('mousedown', (e)=>{
     const pt = svgPoint(e);
+    
+    // SELECT TOOL LOGIC
     if(currentTool === 'select'){
       const target = e.target.closest('[data-shape-id]');
-      selectedId = target ? target.dataset.shapeId : null;
-      if(selectedId){ const sh = shapes.find(s=>s.id===selectedId); if(sh) loadStyleFromShape(sh); }
+      
+      // If clicked on a shape, select it and prepare for dragging
+      if(target){
+        selectedId = target.dataset.shapeId;
+        const sh = shapes.find(s=>s.id===selectedId);
+        if(sh) {
+            loadStyleFromShape(sh);
+            
+            // Setup Dragging
+            isDragging = true;
+            // Calculate offset from the shape's reference point (top-left for rects, center for ellipses, etc.)
+            // For simplicity in this basic engine, we'll calculate delta relative to mouse
+            dragOffset.x = pt.x - sh.x; 
+            dragOffset.y = pt.y - sh.y;
+            
+            // Special handling for lines/arrows which use x1/y1/x2/y2
+            if(sh.type === 'line' || sh.type === 'dashed' || sh.type === 'arrow'){
+                dragOffset.x = pt.x - sh.x1;
+                dragOffset.y = pt.y - sh.y1;
+            }
+        }
+      } else {
+        // Clicked empty space
+        selectedId = null;
+        isDragging = false;
+      }
       render();
       return;
     }
-    if(currentTool === 'text'){ openTextEditor(pt); return; }
+
+    // DRAWING TOOLS LOGIC
+    if(currentTool === 'text'){ e.preventDefault(); openTextEditor(pt); return; }
 
     drawing = true; startPt = pt;
     tempShape = newShapeBase(currentTool, pt);
   });
 
   svg.addEventListener('mousemove', (e)=>{
-    if(!drawing) return;
     const pt = svgPoint(e);
+
+    // HANDLE DRAGGING EXISTING SHAPES
+    if(currentTool === 'select' && isDragging && selectedId){
+        const sh = shapes.find(s=>s.id===selectedId);
+        if(sh){
+            if(sh.type === 'rect' || sh.type === 'ellipse' || sh.type === 'triangle'){
+                sh.x = pt.x - dragOffset.x;
+                sh.y = pt.y - dragOffset.y;
+            } else if (sh.type === 'text') {
+                sh.x = pt.x - dragOffset.x;
+                sh.y = pt.y - dragOffset.y;
+            } else {
+                // Lines/Arrows: Move both points based on delta of first point
+                const dx = pt.x - dragOffset.x - sh.x1;
+                const dy = pt.y - dragOffset.y - sh.y1;
+                sh.x1 += dx; sh.y1 += dy;
+                sh.x2 += dx; sh.y2 += dy;
+            }
+            render();
+        }
+        return;
+    }
+
+    // HANDLE DRAWING NEW SHAPES
+    if(!drawing) return;
     if(currentTool==='rect' || currentTool==='ellipse' || currentTool==='triangle'){
       let w = pt.x - startPt.x, h = pt.y - startPt.y;
       if(shiftHeld){ const m = Math.max(Math.abs(w),Math.abs(h)); w = Math.sign(w||1)*m; h = Math.sign(h||1)*m; }
@@ -693,6 +799,14 @@
   });
 
   window.addEventListener('mouseup', ()=>{
+    // STOP DRAGGING
+    if(isDragging){
+        isDragging = false;
+        pushHistory(); // Save state after move
+        return;
+    }
+
+    // FINISH DRAWING
     if(!drawing) return;
     drawing = false;
     previewLayer.innerHTML = '';
@@ -786,7 +900,7 @@
       el.setAttribute('font-family',"'IBM Plex Sans', sans-serif");
       el.textContent = s.text;
     }
-    if(interactive && el){ el.dataset.shapeId = s.id; el.style.cursor = 'pointer'; }
+    if(interactive && el){ el.dataset.shapeId = s.id; el.style.cursor = 'pointer'; el.style.pointerEvents = 'all'; }
     return el;
   }
 
